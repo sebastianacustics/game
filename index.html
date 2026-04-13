@@ -1,1 +1,450 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Katana Phonk - Arcade Edition</title>
+<style>
+  body { 
+    margin: 0; 
+    overflow: hidden; 
+    background-color: #050505; 
+    background-image: url('fondo.jpg');
+    background-size: cover;
+    background-position: center;
+    color: #fff; 
+    font-family: 'Courier New', Courier, monospace; 
+    user-select: none;
+    cursor: crosshair;
+  }
+  canvas { 
+    display: block; 
+    background: transparent;
+    position: relative;
+    z-index: 5;
+  }
+  
+  #ui { 
+    position: absolute; 
+    top: 20px; 
+    left: 20px; 
+    right: 20px;
+    z-index: 10; 
+    pointer-events: none;
+    display: flex;
+    justify-content: space-between;
+  }
+  
+  h1 { 
+    margin: 0; 
+    color: #ff003c; 
+    text-shadow: 3px 3px 0 #000, 0 0 10px #ff003c; 
+    font-size: 40px;
+  }
 
+  #timer-container {
+    color: #990000;
+    font-size: 45px;
+    font-weight: bold;
+    text-shadow: 3px 3px 0 #000, 0 0 10px #ff0000;
+    transition: all 0.2s;
+  }
+  
+  .time-plus {
+    color: #00ff00 !important;
+    text-shadow: 0 0 20px #00ff00 !important;
+    transform: scale(1.2);
+  }
+  
+  /* --- ESTILOS DEL GAME OVER ARCADE --- */
+  #gameover {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 40px;
+    color: #ff0000;
+    text-shadow: 4px 4px 0 #000;
+    display: none;
+    text-align: center;
+    pointer-events: auto; /* Permite interactuar con el formulario */
+    z-index: 20;
+    background: rgba(0,0,0,0.9);
+    padding: 30px;
+    border: 4px solid #ff003c;
+    border-radius: 10px;
+    min-width: 400px;
+  }
+
+  #input-section {
+    margin-top: 20px;
+    display: none; /* Se muestra solo si hay que guardar puntaje */
+  }
+
+  input[type="text"] {
+    background: #000;
+    border: 2px solid #ff003c;
+    color: #ff003c;
+    font-size: 30px;
+    text-align: center;
+    width: 100px;
+    font-family: 'Courier New', Courier, monospace;
+    text-transform: uppercase;
+    padding: 5px;
+  }
+  
+  input[type="text"]:focus {
+    outline: none;
+    box-shadow: 0 0 15px #ff003c;
+  }
+
+  button {
+    background: #ff003c;
+    color: #000;
+    border: none;
+    font-size: 20px;
+    font-weight: bold;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-family: 'Courier New', Courier, monospace;
+    margin-top: 10px;
+    transition: 0.2s;
+  }
+
+  button:hover {
+    background: #fff;
+    color: #ff003c;
+    box-shadow: 0 0 15px #ff003c;
+  }
+
+  #leaderboard {
+    margin-top: 20px;
+    font-size: 20px;
+    color: #fff;
+    text-shadow: 2px 2px 0 #000;
+    text-align: left;
+    display: inline-block;
+  }
+
+  #leaderboard li {
+    margin: 5px 0;
+    list-style: none;
+  }
+  #leaderboard span.name { color: #ff003c; font-weight: bold; }
+  #leaderboard span.pts { color: #00ffea; float: right; margin-left: 30px; }
+
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <h1>SCORE: <span id="score">0</span></h1>
+  <div id="timer-container">⏱️ <span id="timer">10</span>s</div>
+</div>
+
+<div id="gameover">
+  <div id="go-title" style="font-size: 50px;">FIN DEL TIEMPO</div>
+  <div style="font-size: 30px; margin-top: 10px; color: #fff;">SCORE: <span id="final-score">0</span></div>
+  
+  <div id="input-section">
+    <div style="font-size: 20px; color: #aaa; margin-bottom: 10px;">NUEVO RECORD. INGRESA TUS INICIALES:</div>
+    <input type="text" id="initials" maxlength="3" autocomplete="off" placeholder="AAA">
+    <br>
+    <button onclick="saveScore()">GUARDAR SCORE</button>
+  </div>
+
+  <ul id="leaderboard"></ul>
+  
+  <br>
+  <button id="btn-restart" onclick="resetGame()" style="display: none; margin-top: 20px;">JUGAR DE NUEVO</button>
+</div>
+
+<audio id="bgMusic" loop src="musica.mp3"></audio>
+<audio id="sndKatana" src="katana.mp3"></audio>
+<audio id="sndBomba" src="bomba.mp3"></audio>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  let score = 0;
+  let timeLeft = 10;
+  let gameOver = true; 
+  let targets = [];
+  let slicedParts = []; 
+  let mousePos = { x: 0, y: 0 };
+  let mouseTrail = [];
+  let isSlicing = false;
+  let timerInterval;
+  let gameStarted = false;
+  let redFlashAlpha = 0;
+
+  // Cargar scores guardados del navegador (Arcade System)
+  let highScores = JSON.parse(localStorage.getItem('phonkScores')) || [];
+
+  const targetSize = 110; 
+
+  function playKatana() {
+    let snd = document.getElementById('sndKatana').cloneNode();
+    snd.volume = 0.8;
+    snd.play().catch(e => {});
+  }
+  function playBomba() {
+    let snd = document.getElementById('sndBomba').cloneNode();
+    snd.play().catch(e => {});
+  }
+
+  class Target {
+    constructor() {
+      this.r = 60; 
+      this.x = Math.random() * (canvas.width - this.r * 2) + this.r;
+      this.y = canvas.height + this.r;
+      this.vx = (Math.random() - 0.5) * 10;
+      this.vy = -(Math.random() * 8 + 16); 
+      
+      let rand = Math.random();
+      // ¡DOBLE DE PROBABILIDAD PARA LA IGLESIA!
+      if (rand > 0.85) this.type = '💣';       // 15% Bomba
+      else if (rand > 0.55) this.type = '⛪';  // 30% IGLESIA (Extiende tiempo)
+      else if (rand > 0.25) this.type = '🍁';  // 30% Hoja
+      else this.type = '🤡';                   // 25% Payaso
+      
+      this.active = true;
+    }
+
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vy += 0.28; 
+    }
+
+    draw() {
+      ctx.save();
+      ctx.shadowColor = "white";
+      ctx.shadowBlur = 15;
+      ctx.font = `${targetSize}px Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 2;
+      ctx.strokeText(this.type, this.x, this.y);
+      
+      ctx.fillText(this.type, this.x, this.y);
+      ctx.restore();
+    }
+  }
+
+  class SlicedPart {
+    constructor(x, y, type, isLeft) {
+      this.x = x; this.y = y; this.type = type; this.isLeft = isLeft;
+      this.vx = isLeft ? -7 : 7; this.vy = -6; this.rotation = 0;
+      this.rotSpeed = isLeft ? -0.2 : 0.2; this.alpha = 1.0;
+    }
+    update() {
+      this.x += this.vx; this.y += this.vy; this.vy += 0.5; 
+      this.rotation += this.rotSpeed; this.alpha -= 0.03; 
+    }
+    draw() {
+      if (this.alpha <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = this.alpha;
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.rotation);
+      ctx.beginPath();
+      if (this.isLeft) ctx.rect(-targetSize, -targetSize, targetSize, targetSize * 2);
+      else ctx.rect(0, -targetSize, targetSize, targetSize * 2);
+      ctx.clip();
+      ctx.font = `${targetSize}px Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(this.type, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  function spawnTarget() {
+    if (!gameOver) {
+      targets.push(new Target());
+      let nextSpawn = Math.random() * 500 + 200; 
+      setTimeout(spawnTarget, nextSpawn);
+    }
+  }
+
+  // --- CONTROLES Y CORTES ---
+  // Solo iniciar si no estamos en la pantalla de Game Over
+  window.addEventListener('mousedown', (e) => {
+    if (gameOver && gameStarted) return; // Evitar iniciar si estoy viendo el menú
+    isSlicing = true;
+    mouseTrail = []; 
+    if (!gameStarted) {
+      gameStarted = true;
+      resetGame();
+      document.getElementById('bgMusic').play().catch(e => {});
+    }
+  });
+  
+  window.addEventListener('mouseup', () => { isSlicing = false; });
+  
+  window.addEventListener('mousemove', (e) => {
+    mousePos.x = e.clientX; mousePos.y = e.clientY;
+    if (isSlicing && !gameOver) {
+      mouseTrail.push({x: mousePos.x, y: mousePos.y});
+      if (mouseTrail.length > 15) mouseTrail.shift();
+      checkSlice();
+    }
+  });
+
+  function checkSlice() {
+    for (let i = 0; i < targets.length; i++) {
+      let t = targets[i];
+      if (t.active) {
+        let dx = mousePos.x - t.x;
+        let dy = mousePos.y - t.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < t.r) {
+          t.active = false;
+          if (t.type === '💣') {
+            playBomba();
+            endGame("¡MORISTE!");
+          } else {
+            playKatana();
+            score += 100;
+            
+            // LA IGLESIA EXTIENDE EL TIEMPO
+            if (t.type === '⛪') {
+              timeLeft += 2;
+              flashTimer();
+            }
+
+            document.getElementById('score').innerText = score;
+            redFlashAlpha = 0.4; 
+            slicedParts.push(new SlicedPart(t.x, t.y, t.type, true)); 
+            slicedParts.push(new SlicedPart(t.x, t.y, t.type, false)); 
+          }
+        }
+      }
+    }
+  }
+
+  function flashTimer() {
+    const el = document.getElementById('timer-container');
+    el.classList.add('time-plus');
+    setTimeout(() => el.classList.remove('time-plus'), 300);
+  }
+
+  // --- LÓGICA DE PUNTAJES ---
+  function endGame(reason) {
+    gameOver = true;
+    clearInterval(timerInterval);
+    document.getElementById('go-title').innerText = reason;
+    document.getElementById('final-score').innerText = score;
+    
+    // Verificar si es un Top 5 Score
+    let isHigh = false;
+    if (highScores.length < 5 || score > (highScores[highScores.length-1]?.score || 0)) {
+        if (score > 0) isHigh = true;
+    }
+
+    const inputSection = document.getElementById('input-section');
+    const btnRestart = document.getElementById('btn-restart');
+    
+    if (isHigh) {
+        inputSection.style.display = 'block';
+        btnRestart.style.display = 'none'; // Obliga a guardar el score
+        document.getElementById('initials').value = "";
+        document.getElementById('initials').focus();
+    } else {
+        inputSection.style.display = 'none';
+        btnRestart.style.display = 'inline-block';
+    }
+
+    renderLeaderboard();
+    document.getElementById('gameover').style.display = 'block';
+  }
+
+  function saveScore() {
+    let name = document.getElementById('initials').value.toUpperCase().trim() || "ANON";
+    if (name.length > 3) name = name.substring(0, 3);
+    
+    highScores.push({ name: name, score: score });
+    highScores.sort((a, b) => b.score - a.score); // Ordenar de mayor a menor
+    highScores = highScores.slice(0, 5); // Guardar solo los mejores 5
+    
+    localStorage.setItem('phonkScores', JSON.stringify(highScores));
+    
+    document.getElementById('input-section').style.display = 'none';
+    document.getElementById('btn-restart').style.display = 'inline-block';
+    renderLeaderboard();
+  }
+
+  function renderLeaderboard() {
+    const lb = document.getElementById('leaderboard');
+    lb.innerHTML = '<div style="text-align: center; color: #ff003c; margin-bottom: 10px;">--- TOP 5 HIGHSCORES ---</div>';
+    highScores.forEach((entry, i) => {
+        lb.innerHTML += `<li>${i+1}. <span class="name">${entry.name}</span> <span class="pts">${entry.score}</span></li>`;
+    });
+  }
+
+  function resetGame() {
+    score = 0; timeLeft = 10; redFlashAlpha = 0;
+    document.getElementById('score').innerText = score;
+    document.getElementById('timer').innerText = timeLeft;
+    document.getElementById('gameover').style.display = 'none';
+    targets = []; slicedParts = []; mouseTrail = []; gameOver = false;
+    
+    clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+      if(!gameOver) {
+        timeLeft--;
+        document.getElementById('timer').innerText = timeLeft;
+        if(timeLeft <= 0) endGame("TIEMPO AGOTADO");
+      }
+    }, 1000);
+    spawnTarget();
+  }
+
+  function gameLoop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (redFlashAlpha > 0) {
+      ctx.fillStyle = `rgba(255, 0, 50, ${redFlashAlpha})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      redFlashAlpha -= 0.04; 
+    }
+
+    if (!gameOver || gameStarted) {
+      targets.forEach(t => { if(t.active){ t.update(); t.draw(); } });
+      slicedParts.forEach(sp => { sp.update(); sp.draw(); });
+
+      if (mouseTrail.length > 1) {
+        for (let i = 1; i < mouseTrail.length; i++) {
+          let ratio = i / mouseTrail.length;
+          ctx.beginPath();
+          ctx.moveTo(mouseTrail[i - 1].x, mouseTrail[i - 1].y);
+          ctx.lineTo(mouseTrail[i].x, mouseTrail[i].y);
+          ctx.lineWidth = ratio * 20;
+          ctx.strokeStyle = `rgba(255, 0, 60, ${ratio})`;
+          ctx.stroke();
+        }
+      }
+      if (!isSlicing && mouseTrail.length > 0) mouseTrail.shift();
+    } else {
+      ctx.fillStyle = "white";
+      ctx.font = "25px Courier";
+      ctx.textAlign = "center";
+      ctx.fillText("CLIC PARA EMPEZAR (10 SEGUNDOS)", canvas.width/2, canvas.height/2);
+    }
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Pre-renderizar leaderboard vacío al iniciar
+  renderLeaderboard();
+  gameLoop();
+</script>
+</body>
+</html>
